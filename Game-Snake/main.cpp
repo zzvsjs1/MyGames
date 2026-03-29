@@ -2,65 +2,20 @@
 #include "olcPixelGameEngine.h"
 
 #include <random>
-#include <limits>
-#include <numeric>
+#include <vector>
 
 namespace dir_vec
 {
-	// 4 directions.
-	const olc::vd2d UP = {  0, -1 };
-	const olc::vd2d DOWN = {  0, 1 };
-	const olc::vd2d LEFT = {  -1, 0 };
-	const olc::vd2d RIGHT = { 1, 0 };
+	const olc::vi2d UP = { 0, -1 };
+	const olc::vi2d DOWN = { 0, 1 };
+	const olc::vi2d LEFT = { -1, 0 };
+	const olc::vi2d RIGHT = { 1, 0 };
 }
 
-enum class DIR_ENUM { TOP_LEFT, TOP_RIGHT, LOWER_LEFT, LOWER_RIGHT };
-
-[[nodiscard]]
-static olc::vd2d getFourPointVec(const olc::vd2d& topLeft, const olc::vd2d& size, const DIR_ENUM dir) noexcept
-{
-	switch (dir)
-	{
-		case DIR_ENUM::TOP_LEFT: return topLeft;
-		case DIR_ENUM::TOP_RIGHT: return { topLeft.x + size.x, topLeft.y };
-		case DIR_ENUM::LOWER_LEFT: return { topLeft.x, topLeft.y + size.y };
-		case DIR_ENUM::LOWER_RIGHT: return { topLeft.x + size.x, topLeft.y + size.y };
-		default: return topLeft;
-	}
-}
-
-[[nodiscard, maybe_unused]]
-static bool isRectOverlap(
-	const olc::vd2d& leftTopLeft,
-	const olc::vd2d& leftSize,
-	const olc::vd2d& rightTopLeft,
-	const olc::vd2d& rightSize
-) noexcept
-{
-	const auto leftLowerRight = getFourPointVec(leftTopLeft, leftSize, DIR_ENUM::LOWER_RIGHT);
-	const auto rightLowerRight = getFourPointVec(rightTopLeft, rightSize, DIR_ENUM::LOWER_RIGHT);
-
-	return leftTopLeft.x < rightLowerRight.x
-		&& leftLowerRight.x > rightTopLeft.x
-		&& leftTopLeft.y < rightLowerRight.y
-		&& leftLowerRight.y > rightTopLeft.y;
-}
-
-[[nodiscard]]
-static bool isPixelInRect(
-	const olc::vd2d& rectTopLeft,
-	const olc::vd2d& rectWAndH,
-	const olc::vd2d& pixelPos
-) noexcept
-{
-	const auto rectLowerRight = rectTopLeft + rectWAndH;
-	return pixelPos.x >= rectTopLeft.x && pixelPos.y >= rectTopLeft.y && pixelPos.x <= rectLowerRight.x && pixelPos.y <= rectLowerRight.y;
-}
-
-
-// APPLE
-
-constexpr auto APPLE_RADIUS = 6;
+constexpr int DEFAULT_SNAKE_LEN = 3;
+constexpr int SNAKE_SIZE = 8;
+constexpr int NUM_OF_APPLES = 3;
+constexpr float MOVE_INTERVAL = 0.12f;
 
 struct Apple
 {
@@ -68,139 +23,93 @@ struct Apple
 
 	void draw(olc::PixelGameEngine& engine) const
 	{
-		// Hollow circle
-		//engine.FillCircle(mPos, APPLE_RADIUS, olc::RED);
-		engine.FillCircle(mPos, APPLE_RADIUS, olc::RED);
+		engine.FillRect(mPos, { SNAKE_SIZE, SNAKE_SIZE }, olc::RED);
 	}
 };
-
-// SNAKE
-
-constexpr auto DEFAULT_SNAKE_LEN = 3;
-constexpr auto SNAKE_SIZE = 5;
-constexpr auto SNAKE_SPEED = 40;
-
-
-namespace 
-{
-	const olc::vd2d SNAKE_SIZE_VEC = { SNAKE_SIZE, SNAKE_SIZE };
-	const olc::vd2d DOUBLE_EPSILON = { std::numeric_limits<double>::epsilon(), std::numeric_limits<double>::epsilon() };
-}
 
 struct Snake
 {
 	struct SnakeBody
 	{
-		olc::vd2d pos;
+		olc::vi2d pos;
 	};
 
-	Snake(const int32_t width, const int32_t height)
-		: mBody(), mDirVec2d(dir_vec::LEFT)
+	std::vector<SnakeBody> mBody;
+	olc::vi2d mDirVec2d = dir_vec::LEFT;
+
+	Snake() = default;
+
+	Snake(int32_t width, int32_t height)
 	{
-		// Add body.
-		for (size_t i = 0; i < DEFAULT_SNAKE_LEN; ++i)
-		{
-			mBody.emplace_back(SnakeBody{ { static_cast<double>(width) / 2 + i,  static_cast<double>(height ) / 2 } });
-		}
-
-		//// Add head.
-		//mBody.emplace_back(olc::vd2d{ width / 2, height / 2 });
-
-		//// Add body.
-		//for (size_t i = 1; i < DEFAULT_SNAKE_LEN; ++i)
-		//{
-		//	const auto& [pos] = mBody.back();
-		//	mBody.emplace_back(SnakeBody{ { pos.x + SNAKE_SIZE + 1, pos.y } });
-		//}
+		reset(width, height);
 	}
 
-	void normalUpdate(const float fElapsedTime) noexcept
+	void reset(int32_t width, int32_t height)
+	{
+		mBody.clear();
+		mDirVec2d = dir_vec::LEFT;
+
+		const int startX = ((width / 2) / SNAKE_SIZE) * SNAKE_SIZE;
+		const int startY = ((height / 2) / SNAKE_SIZE) * SNAKE_SIZE;
+
+		// Head is at front, body extends to the right
+		for (int i = 0; i < DEFAULT_SNAKE_LEN; ++i)
+		{
+			mBody.push_back({ { startX + i * SNAKE_SIZE, startY } });
+		}
+	}
+
+	void stepUpdate()
 	{
 		for (size_t i = mBody.size() - 1; i > 0; --i)
 		{
 			mBody[i].pos = mBody[i - 1].pos;
 		}
 
-		getSnakeHead().pos += mDirVec2d * SNAKE_SPEED * fElapsedTime;
-
-		//for (size_t i = mBody.size() - 1; i > 0; --i)
-		//{
-		//	mBody[i].pos = mBody[i - 1].pos;
-		//}
-
-		//const auto newPos = mDirVec2d * SNAKE_SIZE;
-		//getSnakeHead().pos += newPos;
-	}
-
-	void specialUpdate() noexcept
-	{
-		for (size_t i = mBody.size() - 1; i > 0; --i)
-		{
-			mBody[i].pos = mBody[i - 1].pos;
-		}
-
-		const auto newPos = mDirVec2d * SNAKE_SIZE;
-		getSnakeHead().pos += newPos;
+		mBody.front().pos += mDirVec2d * SNAKE_SIZE;
 	}
 
 	void draw(olc::PixelGameEngine& engine) const
 	{
-		for (const auto& [pos] : mBody)
+		for (size_t i = 0; i < mBody.size(); ++i)
 		{
-			//engine.DrawRect(pos, SNAKE_SIZE_VEC);
-			engine.Draw(pos);
+			engine.FillRect(
+				mBody[i].pos,
+				{ SNAKE_SIZE, SNAKE_SIZE },
+				(i == 0) ? olc::YELLOW : olc::GREEN
+			);
 		}
 	}
 
-	void toUp() noexcept
-	{
-		mDirVec2d = dir_vec::UP;
-	}
+	void toUp() noexcept { mDirVec2d = dir_vec::UP; }
+	void toRight() noexcept { mDirVec2d = dir_vec::RIGHT; }
+	void toDown() noexcept { mDirVec2d = dir_vec::DOWN; }
+	void toLeft() noexcept { mDirVec2d = dir_vec::LEFT; }
 
-	void toRight() noexcept
-	{
-		mDirVec2d = dir_vec::RIGHT;
-	}
-
-	void toDown() noexcept
-	{
-		mDirVec2d = dir_vec::DOWN;
-	}
-
-	void toLeft() noexcept
-	{
-		mDirVec2d = dir_vec::LEFT;
-	}
-
-	[[nodiscard]]
 	SnakeBody& getSnakeHead() noexcept
 	{
 		return mBody.front();
 	}
 
-	[[nodiscard]]
 	const SnakeBody& getSnakeHead() const noexcept
 	{
 		return mBody.front();
 	}
 
-	[[nodiscard]]
-	bool isDeath(const int32_t width, const int32_t height) const noexcept
+	bool isDeath(int32_t width, int32_t height) const noexcept
 	{
 		const auto& headPos = getSnakeHead().pos;
 
-		//if (inRectRange(headPos, SNAKE_SIZE_VEC, width, height))
-		if (headPos.x < 0 || headPos.x > width || headPos.y < 0 || headPos.y > height)
+		if (headPos.x < 0 || headPos.y < 0 ||
+			headPos.x + SNAKE_SIZE > width ||
+			headPos.y + SNAKE_SIZE > height)
 		{
 			return true;
 		}
 
-		for (size_t i = 1, size = mBody.size(); i < size; ++i)
+		for (size_t i = 1; i < mBody.size(); ++i)
 		{
-			//if (isRectOverlap(
-			//	headPos, SNAKE_SIZE_VEC, mBody[i].pos, SNAKE_SIZE_VEC
-			//))
-			if (static_cast<olc::vi2d>(headPos) == static_cast<olc::vi2d>(mBody[i].pos))
+			if (mBody[i].pos == headPos)
 			{
 				return true;
 			}
@@ -209,64 +118,28 @@ struct Snake
 		return false;
 	}
 
-	void extendBody(const float fElapsedTime)
+	void extendBody()
 	{
-		const auto backUp = mBody.back();
-		normalUpdate(fElapsedTime);
-		mBody.emplace_back(backUp);
+		mBody.push_back(mBody.back());
 	}
-
-	::std::vector<SnakeBody> mBody;
-	olc::vd2d mDirVec2d;
 };
-
-// GAME
-
-#define NUM_OF_APPLES (3)
-
-static const olc::vd2d RECT_LEN_VEC = { APPLE_RADIUS * 2, APPLE_RADIUS * 2 };
 
 class Game final : public olc::PixelGameEngine
 {
 public:
-
 	Game()
-		: olc::PixelGameEngine(),
-		mSnake(ScreenWidth(), 
-		ScreenHeight()),
-	mApples(),
-	mScore(),
-	isOver(),
-	mRandEngine(std::random_device{}()),
-	mRandX(),
-	mRandY()
-
+		: olc::PixelGameEngine()
+		, mScore(0)
+		, isOver(false)
+		, mMoveTimer(0.0f)
+		, mRandEngine(std::random_device{}())
 	{
 		sAppName = "Snake";
-		mRandX = ::std::uniform_int_distribution(APPLE_RADIUS, ScreenWidth() - APPLE_RADIUS);
-		mRandY = ::std::uniform_int_distribution(APPLE_RADIUS, ScreenHeight() - APPLE_RADIUS);
-	}
-
-	void resetGame()
-	{
-		addApples();
-		mSnake = Snake(ScreenWidth(), ScreenHeight());
-		isOver = false;
-	}
-
-	void addApples()
-	{
-		while (mApples.size() < NUM_OF_APPLES)
-		{
-			mApples.emplace_back(Apple{ { mRandX(mRandEngine), mRandY(mRandEngine)}});
-		}
-		//mApples.emplace_back(Apple{ { 50, 50 } });
-		//mApples.emplace_back(Apple{ { 100, 50 } });
-		//mApples.emplace_back(Apple{ { 150, 80 } });
 	}
 
 	bool OnUserCreate() override
 	{
+		rebuildRandomRange();
 		resetGame();
 		return true;
 	}
@@ -275,104 +148,158 @@ public:
 	{
 		Clear(olc::BLACK);
 
-		if (isOver)
+		handleKeyInput();
+
+		if (!isOver)
 		{
-			handleKeyInput(fElapsedTime);
-			DrawString(20, ScreenHeight() / 3, std::string("Game over! You got " + std::to_string(mScore) + " point!"));
-			return true;
+			mMoveTimer += fElapsedTime;
+
+			while (mMoveTimer >= MOVE_INTERVAL)
+			{
+				mMoveTimer -= MOVE_INTERVAL;
+
+				mSnake.stepUpdate();
+
+				if (isEatApple())
+				{
+					addApples();
+				}
+
+				isOver = mSnake.isDeath(ScreenWidth(), ScreenHeight());
+				if (isOver)
+					break;
+			}
 		}
 
-		handleKeyInput(fElapsedTime);
-
-		isEatApple(fElapsedTime);
-		addApples();
-
-
-		// Draw all entities.
 		mSnake.draw(*this);
 		for (const auto& apple : mApples)
-		{
 			apple.draw(*this);
-		}
 
-		// Check if we need to stop the game.
-		isOver = mSnake.isDeath(ScreenWidth(), ScreenHeight());
+		DrawString(2, 2, "Score: " + std::to_string(mScore), olc::WHITE);
+
+		if (isOver)
+		{
+			DrawString(40, ScreenHeight() / 2 - 10, "Game Over", olc::RED);
+			DrawString(20, ScreenHeight() / 2 + 10, "Press R to restart", olc::WHITE);
+		}
 
 		return true;
 	}
 
-	void isEatApple(const float fElapsedTime)
+private:
+	void rebuildRandomRange()
 	{
-		for (size_t i = 0, size = mApples.size(); i < size; ++i)
-		{
-			for (const auto& [pos] : mSnake.mBody)
-			{
-				const olc::vd2d cirToRectPos
-					= { static_cast<double>(mApples[i].mPos.x - APPLE_RADIUS),
-					static_cast<double>(mApples[i].mPos.y - APPLE_RADIUS)
-					};
+		const int cols = ScreenWidth() / SNAKE_SIZE;
+		const int rows = ScreenHeight() / SNAKE_SIZE;
 
-				if (isPixelInRect(cirToRectPos, RECT_LEN_VEC, pos))
-				{
-					mSnake.extendBody(fElapsedTime);
-					mSnake.extendBody(fElapsedTime);
-					mSnake.extendBody(fElapsedTime);
-					mSnake.extendBody(fElapsedTime);
-					mApples.erase(
-							mApples.cbegin() + static_cast<::std::vector<Apple>::difference_type>(i)
-					);
-					++mScore;
-					return;
-				}
-			}
-			//if (mApples[i].mPos == mSnake.getSnakeHead().pos)
-			//{
-			//	mSnake.extendBody();
-			//	mApples.erase(
-			//		mApples.cbegin() + static_cast<::std::vector<Apple>::difference_type>(i)
-			//	);
-			//	++mScore;
-			//	return;
-			//}
+		mRandX = std::uniform_int_distribution<int32_t>(0, cols - 1);
+		mRandY = std::uniform_int_distribution<int32_t>(0, rows - 1);
+	}
+
+	void resetGame()
+	{
+		mApples.clear();
+		mScore = 0;
+		isOver = false;
+		mMoveTimer = 0.0f;
+
+		mSnake.reset(ScreenWidth(), ScreenHeight());
+		addApples();
+	}
+
+	bool isSnakeOnCell(const olc::vi2d& pos) const
+	{
+		for (const auto& body : mSnake.mBody)
+		{
+			if (body.pos == pos)
+				return true;
+		}
+		return false;
+	}
+
+	bool isAppleOnCell(const olc::vi2d& pos) const
+	{
+		for (const auto& apple : mApples)
+		{
+			if (apple.mPos == pos)
+				return true;
+		}
+		return false;
+	}
+
+	void addApples()
+	{
+		while (mApples.size() < NUM_OF_APPLES)
+		{
+			olc::vi2d pos = {
+				mRandX(mRandEngine) * SNAKE_SIZE,
+				mRandY(mRandEngine) * SNAKE_SIZE
+			};
+
+			if (isSnakeOnCell(pos) || isAppleOnCell(pos))
+				continue;
+
+			mApples.push_back({ pos });
 		}
 	}
 
-	void handleKeyInput(const float fElapsedTime)
+	bool isEatApple()
 	{
-		// Make sure the user not go to opposite direction.
-		if (GetKey(olc::Key::UP).bHeld && mSnake.mDirVec2d != dir_vec::DOWN)
+		const auto headPos = mSnake.getSnakeHead().pos;
+
+		for (size_t i = 0; i < mApples.size(); ++i)
+		{
+			if (mApples[i].mPos == headPos)
+			{
+				mApples.erase(mApples.begin() + static_cast<long long>(i));
+				mSnake.extendBody();
+				++mScore;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	void handleKeyInput()
+	{
+		if (GetKey(olc::Key::R).bPressed)
+		{
+			resetGame();
+			return;
+		}
+
+		if (isOver)
+			return;
+
+		if (GetKey(olc::Key::UP).bPressed && mSnake.mDirVec2d != dir_vec::DOWN)
 		{
 			mSnake.toUp();
 		}
-		else if (GetKey(olc::Key::RIGHT).bHeld && mSnake.mDirVec2d != dir_vec::LEFT)
+		else if (GetKey(olc::Key::RIGHT).bPressed && mSnake.mDirVec2d != dir_vec::LEFT)
 		{
 			mSnake.toRight();
-
 		}
-		else if (GetKey(olc::Key::DOWN).bHeld && mSnake.mDirVec2d != dir_vec::UP)
+		else if (GetKey(olc::Key::DOWN).bPressed && mSnake.mDirVec2d != dir_vec::UP)
 		{
 			mSnake.toDown();
 		}
-		else if (GetKey(olc::Key::LEFT).bHeld && mSnake.mDirVec2d != dir_vec::RIGHT)
+		else if (GetKey(olc::Key::LEFT).bPressed && mSnake.mDirVec2d != dir_vec::RIGHT)
 		{
 			mSnake.toLeft();
 		}
-		else if (GetKey(olc::Key::W).bHeld)
-		{
-			resetGame();
-		}
-
-		mSnake.normalUpdate(fElapsedTime);
 	}
 
+private:
 	Snake mSnake;
 	std::vector<Apple> mApples;
 	uint64_t mScore;
 	bool isOver;
+	float mMoveTimer;
+
 	std::default_random_engine mRandEngine;
 	std::uniform_int_distribution<int32_t> mRandX;
 	std::uniform_int_distribution<int32_t> mRandY;
-
 };
 
 #ifndef _DEBUG
@@ -381,10 +308,10 @@ int WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 int main()
 #endif
 {
-	if (Game game; game.Construct(256, 256, 4, 4, false, true))
+	Game game;
+	if (game.Construct(256, 256, 4, 4, false, true))
 	{
 		game.Start();
 	}
-
 	return 0;
 }
